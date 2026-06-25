@@ -1,0 +1,39 @@
+{
+  "name": "tracespend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Tracespend — Where did the money go? An animated sundial explorer for government vendor payments.",
+  "scripts": {
+    "build:data": "node scripts/build-data.mjs",
+    "build:worker": "node scripts/build-query-worker.mjs",
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "server": "node server/index.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.1",
+    "lucide-react": "^0.460.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/d3": "^7.4.3",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "autoprefixer": "^10.4.20",
+    "csv-parse": "^5.5.6",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

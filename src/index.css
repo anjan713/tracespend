@@ -1,0 +1,98 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(1200px 600px at 70% -10%, rgba(229, 178, 93, 0.08), transparent 60%),
+    radial-gradient(900px 500px at 10% 110%, rgba(229, 178, 93, 0.05), transparent 55%), #0e0f12;
+  color: #f4ecdd;
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Thin gold scrollbars */
+*::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background: rgba(229, 178, 93, 0.22);
+  border-radius: 999px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(229, 178, 93, 0.4);
+}
+
+@layer components {
+  .panel {
+    @apply bg-ink-800/80 border border-white/5 rounded-xl shadow-panel backdrop-blur-sm;
+  }
+  .panel-title {
+    @apply text-[13px] font-semibold tracking-wide text-cream;
+  }
+  .panel-sub {
+    @apply text-[11px] uppercase tracking-[0.14em] text-mute;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-ink-700/70 px-2 py-1 text-xs text-cream;
+  }
+  .gold-text {
+    background: linear-gradient(92deg, #f2c879, #e5b25d 40%, #d49a3e);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .btn-gold {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg bg-gold-300 px-3 py-2 text-sm font-semibold text-ink-900 transition;
+  }
+  .btn-gold:hover {
+    @apply bg-gold-200 shadow-glow;
+  }
+  .btn-ghost {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-ink-700/60 px-3 py-2 text-sm text-cream transition hover:border-gold-300/40 hover:text-gold-100;
+  }
+  .seg {
+    @apply rounded-md px-2.5 py-1 text-xs font-medium text-mute transition;
+  }
+  .seg-active {
+    @apply bg-gold-300 text-ink-900;
+  }
+  .field {
+    @apply w-full rounded-lg border border-white/10 bg-ink-900/70 px-3 py-2 text-sm text-cream placeholder:text-mute/70 outline-none transition focus:border-gold-300/50 focus:shadow-glow;
+  }
+}
+
+/* Pulsing gold glow applied to AI-highlighted sundial arcs. */
+.arc-glow-pulse {
+  animation: pulse-glow 1.6s ease-in-out infinite;
+}
+@keyframes pulse-glow {
+  0%, 100% {
+    filter: drop-shadow(0 0 3px rgba(242, 200, 121, 0.5));
+  }
+  50% {
+    filter: drop-shadow(0 0 11px rgba(242, 200, 121, 0.95));
+  }
+}
+
+/* Respect reduced motion globally for CSS animations. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}

@@ -1,0 +1,15 @@
+node_modules
+dist
+.DS_Store
+.env
+.env.local
+*.log
+*.tsbuildinfo
+
+# Raw source CSVs + media (build-time only) — never committed
+/data/
+logs/
+
+# Dev-only docs — kept local, not pushed/deployed
+DEMO_SCRIPT.md
+PROJECT_LOG.md
