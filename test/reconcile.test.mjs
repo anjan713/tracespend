@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FILE = path.resolve(__dirname, '..', 'public', 'artifacts', 'spending.json');
+const EVIDENCE_FILE = path.resolve(__dirname, '..', 'public', 'artifacts', 'evidence.json');
 
 const TOL = 1; // dollar tolerance for cent rounding
 
@@ -17,7 +18,14 @@ function load() {
   return JSON.parse(fs.readFileSync(FILE, 'utf8'));
 }
 
+// Evidence now lives in its own artifact (lazy-loaded by the client).
+function loadEvidence() {
+  assert.ok(fs.existsSync(EVIDENCE_FILE), 'evidence.json missing — run `npm run build:data` first');
+  return JSON.parse(fs.readFileSync(EVIDENCE_FILE, 'utf8'));
+}
+
 const data = load();
+const evidence = loadEvidence();
 
 test('meta reports a clean reconciliation', () => {
   assert.equal(data.meta.reconciliation.ok, true);
@@ -110,7 +118,7 @@ function expectedFromId(id) {
 // individual gross payment can exceed a node's NET total): verify every evidence
 // transaction is attached to the node it actually belongs to.
 test('evidence transactions map to the correct node (category/agency/vendor)', () => {
-  for (const [id, txs] of Object.entries(data.evidence)) {
+  for (const [id, txs] of Object.entries(evidence)) {
     const exp = expectedFromId(id);
     for (const t of txs) {
       if (exp.category != null) assert.equal(t.category, exp.category, `evidence in ${id} has wrong category`);

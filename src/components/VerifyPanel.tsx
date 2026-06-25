@@ -1,5 +1,5 @@
-import { ArrowDownRight, ArrowUpRight, FileSearch, Receipt } from 'lucide-react';
-import type { FYMode, SpendData, SpendNode } from '../types';
+import { ArrowDownRight, ArrowUpRight, FileSearch, Loader2, Receipt } from 'lucide-react';
+import type { EvidenceMap, FYMode, SpendData, SpendNode } from '../types';
 import { fyChange, valueOf } from '../lib/data';
 import { fiscalMonth, money, moneyExact, pct, signedPct } from '../lib/format';
 import CountUp from './CountUp';
@@ -7,6 +7,8 @@ import CountUp from './CountUp';
 interface Props {
   node: SpendNode;
   data: SpendData;
+  /** Lazy-loaded evidence map; null until it finishes downloading. */
+  evidence: EvidenceMap | null;
   fyMode: FYMode;
   minAmount: number;
   reduceMotion: boolean;
@@ -21,14 +23,15 @@ const LEVEL_LABEL: Record<string, string> = {
   other: 'Grouped',
 };
 
-export default function VerifyPanel({ node, data, fyMode, minAmount, reduceMotion, onDrill }: Props) {
+export default function VerifyPanel({ node, data, evidence, fyMode, minAmount, reduceMotion, onDrill }: Props) {
   const grand = data.meta.grandTotal;
   const value = valueOf(node, fyMode);
   const change = fyChange(node);
   const children = [...(node.children ?? [])].sort((a, b) => valueOf(b, fyMode) - valueOf(a, fyMode));
   const maxChild = children.length ? valueOf(children[0], fyMode) : 0;
 
-  const evidence = (data.evidence[node.id] ?? [])
+  const evidenceLoading = evidence === null;
+  const txns = (evidence?.[node.id] ?? [])
     .filter((t) => (fyMode === 'all' ? true : fyMode === 'fy2022' ? t.fy === 2022 : t.fy === 2023))
     .filter((t) => t.amount >= minAmount)
     .slice(0, 25);
@@ -69,7 +72,9 @@ export default function VerifyPanel({ node, data, fyMode, minAmount, reduceMotio
             {node.level === 'root'
               ? data.meta.rowCount.toLocaleString()
               : isLeafSubject(node)
-              ? evidence.length.toLocaleString()
+              ? evidenceLoading
+                ? '…'
+                : txns.length.toLocaleString()
               : children.length.toLocaleString()}
           </span>
         </Stat>
@@ -124,9 +129,14 @@ export default function VerifyPanel({ node, data, fyMode, minAmount, reduceMotio
       {/* Evidence */}
       <div className="min-h-0">
         <p className="panel-sub mb-2 flex items-center gap-1.5">
-          <FileSearch size={13} /> Evidence · {evidence.length} {evidence.length === 1 ? 'payment' : 'payments'}
+          <FileSearch size={13} /> Evidence{' '}
+          {evidenceLoading ? '' : `· ${txns.length} ${txns.length === 1 ? 'payment' : 'payments'}`}
         </p>
-        {evidence.length === 0 ? (
+        {evidenceLoading ? (
+          <p className="flex items-center gap-2 rounded-md border border-white/5 bg-ink-900/50 px-3 py-3 text-xs text-mute">
+            <Loader2 size={13} className="animate-spin" /> Loading payment evidence…
+          </p>
+        ) : txns.length === 0 ? (
           <p className="rounded-md border border-white/5 bg-ink-900/50 px-3 py-3 text-xs text-mute">
             No individual payments indexed for this selection under the current filters.
           </p>
@@ -141,7 +151,7 @@ export default function VerifyPanel({ node, data, fyMode, minAmount, reduceMotio
                 </tr>
               </thead>
               <tbody>
-                {evidence.map((t, i) => (
+                {txns.map((t, i) => (
                   <tr key={i} className="border-t border-white/5 hover:bg-white/5">
                     <td className="max-w-[150px] truncate px-2.5 py-1.5 text-cream" title={`${t.vendor.trim()} · ${t.agency.trim()}`}>
                       {t.vendor.trim()}

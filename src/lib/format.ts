@@ -38,10 +38,12 @@ export function signedPct(p: number): string {
   return `${s}${p.toFixed(1)}%`;
 }
 
-/** Fiscal-month code (01..12 of the biennium) to a readable label. */
+/** Fiscal-month code to a readable label. The source numbers months across the
+ *  whole biennium: 01–12 belong to FY2022 (Jul→Jun) and 13–24 to FY2023, so we
+ *  fold the code back into a 0–11 month index before labelling it. */
 const MONTHS = ['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'];
 export function fiscalMonth(code: string, fy: number): string {
-  const idx = parseInt(code, 10) - 1;
-  if (Number.isNaN(idx) || idx < 0 || idx > 11) return `FY${fy}`;
-  return `${MONTHS[idx]} ${fy}`;
+  const n = parseInt(code, 10);
+  if (Number.isNaN(n) || n < 1 || n > 24) return `FY${fy}`;
+  return `${MONTHS[(n - 1) % 12]} ${fy}`;
 }

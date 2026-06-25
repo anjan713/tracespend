@@ -5,11 +5,11 @@ import AskPanel from './components/AskPanel';
 import VerifyPanel from './components/VerifyPanel';
 import Sundial, { type SundialHandle, type SizeMode } from './components/Sundial';
 import CountUp from './components/CountUp';
-import { loadData, indexTree, pathTo, valueOf } from './lib/data';
+import { loadData, loadEvidence, indexTree, pathTo, valueOf } from './lib/data';
 import { money, pct } from './lib/format';
 import { logActivity, downloadActivity, subscribeActivity } from './lib/activityLog';
 import { ask, type AskChartHint, type AskResponse } from './lib/ask';
-import type { AgentAction, FYMode, SpendData, SpendNode } from './types';
+import type { AgentAction, EvidenceMap, FYMode, SpendData, SpendNode } from './types';
 
 // The data's columns / hierarchy tiers, shown as a level indicator so the user
 // always knows whether they're viewing a category, an agency, or a vendor.
@@ -29,6 +29,7 @@ const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v
 
 export default function App() {
   const [data, setData] = useState<SpendData | null>(null);
+  const [evidence, setEvidence] = useState<EvidenceMap | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [fyMode, setFyMode] = useState<FYMode>('all');
@@ -72,6 +73,16 @@ export default function App() {
         logActivity('data_loaded', { error: String(e?.message ?? e) });
       });
   }, []);
+
+  // Lazy-load the (large) evidence file once the main artifact is in. This keeps
+  // the initial paint fast: the sundial renders from the small tree while
+  // evidence streams in the background and populates the Verify panel shortly.
+  useEffect(() => {
+    if (!data) return;
+    loadEvidence()
+      .then(setEvidence)
+      .catch((e) => logActivity('evidence_load', { error: String(e?.message ?? e) }));
+  }, [data]);
 
   const treeIndex = useMemo(() => (data ? indexTree(data.tree) : null), [data]);
 
@@ -472,6 +483,7 @@ export default function App() {
           <VerifyPanel
             node={selected}
             data={data}
+            evidence={evidence}
             fyMode={fyMode}
             minAmount={minAmount}
             reduceMotion={!!reduceMotion}

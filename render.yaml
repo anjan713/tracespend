@@ -20,3 +20,23 @@ services:
         value: "20"
       - key: ANTHROPIC_API_KEY
         sync: false
+      # Secret that gates the hidden /api/log/clear + /api/log/export endpoints.
+      # Generate with `openssl rand -hex 32` and paste it in the Render dashboard
+      # (kept out of the repo). Without it those endpoints stay 404.
+      - key: LOG_CLEAR_TOKEN
+        sync: false
+      # Durable activity-log storage, auto-injected from the free Postgres below
+      # (internal connection string). Without it the server falls back to a file.
+      - key: DATABASE_URL
+        fromDatabase:
+          name: tracespend-db
+          property: connectionString
+
+# Free managed Postgres for the runtime activity log — survives restarts/redeploys,
+# unlike the container disk. Note: Render deletes FREE databases ~30 days after
+# creation (fine for an assessment window; re-provision if you need longer).
+databases:
+  - name: tracespend-db
+    plan: free
+    databaseName: tracespend
+    user: tracespend

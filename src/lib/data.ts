@@ -1,10 +1,30 @@
-import type { FYMode, SpendData, SpendNode } from '../types';
+import type { EvidenceMap, FYMode, SpendData, SpendNode } from '../types';
 
-/** Load the precomputed artifact. */
+/** Load the precomputed artifact (tree + indexes, no evidence). */
 export async function loadData(): Promise<SpendData> {
   const res = await fetch('/artifacts/spending.json');
   if (!res.ok) throw new Error(`Failed to load spending data (${res.status})`);
   return (await res.json()) as SpendData;
+}
+
+// Evidence is the largest section of the dataset and is only needed by the
+// Verify panel. It lives in a separate file and is fetched lazily, then memoized
+// so it loads at most once per session.
+let evidencePromise: Promise<EvidenceMap> | null = null;
+export function loadEvidence(): Promise<EvidenceMap> {
+  if (!evidencePromise) {
+    evidencePromise = fetch('/artifacts/evidence.json')
+      .then((res) => {
+        if (!res.ok) throw new Error(`Failed to load evidence (${res.status})`);
+        return res.json() as Promise<EvidenceMap>;
+      })
+      .catch((e) => {
+        // Reset so a transient failure can be retried on the next call.
+        evidencePromise = null;
+        throw e;
+      });
+  }
+  return evidencePromise;
 }
 
 /** Value of a node under the active fiscal-year lens. */

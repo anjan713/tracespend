@@ -193,7 +193,12 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
       arcVisible(d.current) ? (belowMin(d) ? 0.12 : d.data.level === 'other' ? 0.45 : 0.86) : 0;
 
     // ---- arcs ----
-    const path = g
+    // Arcs + labels share one "reveal" layer so the first-load animation can bloom
+    // the entire wheel with a single transform/opacity transition (cheap + smooth)
+    // instead of tweening every arc's path. The hit layer and center hub are
+    // appended OUTSIDE this layer so pointer detection and the hub never scale.
+    const revealLayer = g.append('g');
+    const path = revealLayer
       .append('g')
       .selectAll<SVGPathElement, HNode>('path')
       .data(descendants)
@@ -206,7 +211,7 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
       .attr('d', (d) => arc(d.current));
 
     // ---- labels (declared before hover handlers that reference them) ----
-    const label = g
+    const label = revealLayer
       .append('g')
       .attr('pointer-events', 'none')
       .attr('text-anchor', 'middle')
@@ -261,7 +266,17 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
 
     function showTip(d: HNode) {
       const drillableOther = d.data.level === 'other' && !!d.children;
-      tip.style('display', 'block');
+      const el = tooltipRef.current;
+      if (el) {
+        el.style.display = 'block';
+        if (!reduceMotion) {
+          // Restart the entrance animation so the tooltip softly pops on each
+          // new slice instead of snapping in instantly.
+          el.style.animation = 'none';
+          el.getBoundingClientRect(); // force reflow to replay the animation
+          el.style.animation = '';
+        }
+      }
       tip.select('.tip-name').text(d.data.name.replace(/\s+/g, ' ').trim());
       tip.select('.tip-amount').text(money(valFn(d.data)));
       tip
@@ -366,10 +381,83 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
         }
       });
 
+    // ---- shared "dashboard sweep" reveal (first load + drill-in) ----
+    // A glowing gold needle turns one full clockwise revolution (12 → 12) while every
+    // arc/label "lights up" exactly as the needle passes its angle (its delay is keyed
+    // to the slice's mid-angle). Pure opacity staggering — no per-frame path rebuilds —
+    // so it's cheap over thousands of slices and layers on top of the drill's geometry
+    // tween: it runs under the NAMED 'reveal' transition, so it never cancels the
+    // unnamed geometry/zoom transition sharing the same elements.
+    const litOpacity = (d: HNode, box: Box) =>
+      !arcVisible(box) ? 0 : belowMin(d) ? 0.12 : d.data.level === 'other' ? 0.45 : 0.86;
+
+    function spawnNeedle(duration: number) {
+      const outerR = 3 * RADIUS_UNIT;
+      g.selectAll('.sweep-needle').interrupt().remove();
+      const needle = g.append('g').attr('class', 'sweep-needle').attr('pointer-events', 'none');
+      needle
+        .append('line')
+        .attr('x1', 0)
+        .attr('y1', 0)
+        .attr('x2', 0)
+        .attr('y2', -(outerR + 16))
+        .attr('stroke', '#F4D08A')
+        .attr('stroke-width', 2.5)
+        .attr('stroke-linecap', 'round')
+        .attr('filter', 'url(#arc-glow)');
+      parentCircle.raise(); // keep the center hub above the needle's pivot
+      needle
+        .attr('transform', 'rotate(0)')
+        .transition()
+        .duration(duration)
+        .ease(d3.easeLinear)
+        .attrTween('transform', () => {
+          const i = d3.interpolate(0, 360);
+          return (tt) => `rotate(${i(tt)})`;
+        })
+        .transition()
+        .duration(260)
+        .ease(d3.easeCubicOut)
+        .style('opacity', 0)
+        .remove();
+    }
+
+    function sweepReveal(boxOf: (d: HNode) => Box, duration: number) {
+      const sweepDelay = (b: Box) =>
+        ((Math.max(0, (b.x0 + b.x1) / 2) % (2 * Math.PI)) / (2 * Math.PI)) * duration;
+      path
+        .filter((d) => arcVisible(boxOf(d)))
+        .interrupt('reveal')
+        .attr('fill-opacity', 0)
+        .transition('reveal')
+        .delay((d) => sweepDelay(boxOf(d)))
+        .duration(260)
+        .ease(d3.easeCubicOut)
+        .attr('fill-opacity', (d) => litOpacity(d, boxOf(d)));
+      label
+        .filter((d) => labelVisible(boxOf(d)))
+        .interrupt('reveal')
+        .attr('fill-opacity', 0)
+        .transition('reveal')
+        .delay((d) => sweepDelay(boxOf(d)) + 110)
+        .duration(240)
+        .ease(d3.easeCubicOut)
+        .attr('fill-opacity', (d) => +labelVisible(boxOf(d)));
+      spawnNeedle(duration);
+    }
+
     // ---- zoom / drill transition ----
     function zoomTo(p: HNode) {
+      // Drilling DEEPER (into a slice) replays the dashboard sweep on the freshly
+      // revealed children; zooming back out stays a plain geometry tween.
+      const goingDeeper = !reduceMotion && p.depth > (focusRef.current?.depth ?? 0);
       focusRef.current = p;
       parentCircle.datum(p);
+
+      // Cancel any reveal sweep still running from a previous load/drill.
+      path.interrupt('reveal');
+      label.interrupt('reveal');
+      g.selectAll('.sweep-needle').interrupt().remove();
 
       root0.each((d) => {
         (d as HNode).target = zoomTarget(d, p);
@@ -378,10 +466,17 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
       const dur = reduceMotion ? 0 : 820;
       const t = svg.transition().duration(dur).ease(d3.easeCubicInOut);
 
-      // Arcs that won't belong to the destination view are snapped straight to
-      // their collapsed target with zero opacity — instead of fading out over the
-      // full duration. Fading them caused a lingering "fan" of thin slivers when
-      // drilling into a node with few children (the reported glitch).
+      // Per-frame smoothness: the cost of a drill is dominated by regenerating
+      // SVG arc paths every tick, so we tween ONLY the arcs that visibly move and
+      // snap everything else into place.
+      const MIN_ANIM_PX = 0.75; // approx on-screen arc width worth animating
+      const arcPx = (b: Box) => (b.x1 - b.x0) * (((b.y0 + b.y1) / 2) * RADIUS_UNIT);
+      const finalOpacity = (d: HNode) =>
+        belowMin(d) ? 0.12 : d.data.level === 'other' ? 0.45 : 0.86;
+
+      // 1) Arcs outside the destination view: snap to their collapsed target with
+      //    zero opacity — instead of fading out over the full duration. Fading
+      //    them left a lingering "fan" of thin slivers when drilling in.
       path
         .filter((d) => !arcVisible(d.target!))
         .interrupt()
@@ -391,17 +486,39 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
         .attr('fill-opacity', 0)
         .attr('d', (d) => arc(d.current)!);
 
-      // Animate only the arcs that are part of the destination view.
-      path
-        .filter((d) => arcVisible(d.target!))
+      // 2) Destination arcs that stay sub-pixel-thin from start to finish: snap
+      //    straight to final geometry. They're imperceptible in motion yet each
+      //    one costs a full arc rebuild every frame, so tweening them is pure jank.
+      const tiny = path
+        .filter(
+          (d) =>
+            arcVisible(d.target!) &&
+            arcPx(d.current) < MIN_ANIM_PX &&
+            arcPx(d.target!) < MIN_ANIM_PX
+        )
+        .interrupt()
+        .each((d) => {
+          d.current = d.target!;
+        })
+        .attr('d', (d) => arc(d.current)!);
+      if (!goingDeeper) tiny.attr('fill-opacity', finalOpacity);
+
+      // 3) The arcs you actually see move: tween geometry (+ opacity, unless the
+      //    drill-in reveal sweep below owns opacity to light them up clockwise).
+      const moving = path
+        .filter(
+          (d) =>
+            arcVisible(d.target!) &&
+            (arcPx(d.current) >= MIN_ANIM_PX || arcPx(d.target!) >= MIN_ANIM_PX)
+        )
         .interrupt()
         .transition(t as any)
         .tween('data', (d) => {
           const i = d3.interpolate(d.current, d.target!);
           return (tt) => (d.current = i(tt));
         })
-        .attr('fill-opacity', (d) => (belowMin(d) ? 0.12 : d.data.level === 'other' ? 0.45 : 0.86))
         .attrTween('d', (d) => () => arc(d.current)!);
+      if (!goingDeeper) moving.attr('fill-opacity', finalOpacity);
 
       // Labels: hide non-destination labels instantly, animate the rest. Text
       // (1–2 wrapped lines) is rebuilt to the destination immediately; only
@@ -416,33 +533,27 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
 
       const shown = label.filter((d) => labelVisible(d.target!));
       setLabelLines(shown, (d) => d.target!);
-      shown
+      const shownT = shown
         .interrupt()
         .transition(t as any)
-        .attr('fill-opacity', 1)
         .attr('font-size', (d) => `${labelFont(d.target!)}px`)
         .attrTween('transform', (d) => () => labelTransform(d.current));
+      if (!goingDeeper) shownT.attr('fill-opacity', 1);
 
-      // Keep the invisible, gap-free hit layer aligned with the destination
-      // geometry so pointer detection stays stable through the drill.
+      // The hit layer is invisible, so there's no reason to tween it — snapping it
+      // straight to the destination geometry removes a SECOND full arc-path
+      // rebuild per frame (the single biggest drag on drill smoothness). Pointer
+      // detection settles to the final layout, which is all that matters post-drill.
       hit
-        .filter((d) => !arcVisible(d.target!))
         .interrupt()
-        .attr('pointer-events', 'none')
-        .attr('d', (d) => arcHit(d.target!));
-      hit
-        .filter((d) => arcVisible(d.target!))
-        .interrupt()
-        .attr('pointer-events', 'all')
-        .style('cursor', (d) => (d.children ? 'pointer' : 'default'))
-        .transition(t as any)
-        .attrTween('d', (d) => {
-          const i = d3.interpolate(
-            { x0: d.current.x0, x1: d.current.x1, y0: d.current.y0, y1: d.current.y1 },
-            d.target!
-          );
-          return (tt) => arcHit(i(tt))!;
-        });
+        .attr('d', (d) => arcHit(d.target!))
+        .attr('pointer-events', (d) => (arcVisible(d.target!) ? 'all' : 'none'))
+        .style('cursor', (d) => (d.children ? 'pointer' : 'default'));
+
+      // Drill-in "ignition" sweep: the geometry tween above runs under the unnamed
+      // transition while this lights each freshly revealed slice (keyed to its target
+      // mid-angle) in lock-step with the needle.
+      if (goingDeeper) sweepReveal((d) => d.target!, dur);
     }
 
     // Single source of truth for arc appearance: visibility, min-amount dimming,
@@ -464,27 +575,12 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
 
     apiRef.current = { zoomTo, nodeById, refreshAppearance };
 
-    // ---- first-load reveal (unfurl) ----
-    if (!reduceMotion) {
-      path
-        .attr('fill-opacity', 0)
-        .attr('d', (d) => arc({ ...d.current, x1: d.current.x0 }))
-        .transition()
-        .delay((d) => d.depth * 140 + ((d.x0 / (2 * Math.PI)) * 240))
-        .duration(720)
-        .ease(d3.easeCubicOut)
-        .attr('fill-opacity', baseOpacity)
-        .attrTween('d', (d) => {
-          const i = d3.interpolate({ ...d.current, x1: d.current.x0 }, d.current);
-          return (tt) => arc(i(tt))!;
-        });
-      label
-        .attr('fill-opacity', 0)
-        .transition()
-        .delay((d) => d.depth * 140 + 360)
-        .duration(420)
-        .attr('fill-opacity', (d) => +labelVisible(d.current));
-    }
+    // ---- first-load reveal (dashboard sweep) ----
+    // Car gauge self-test on ignition: the needle turns a full clockwise revolution
+    // (12 → 12) and the whole wheel lights up in lock-step behind it. The very same
+    // routine is replayed on drill-in (see zoomTo), so individual slices get the
+    // effect too.
+    if (!reduceMotion) sweepReveal((d) => d.current, 1250);
 
     return () => {
       svg.selectAll('*').interrupt();
@@ -534,7 +630,7 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
       <div
         ref={tooltipRef}
         style={{ display: 'none' }}
-        className="pointer-events-none absolute z-20 max-w-[280px] rounded-xl border border-white/10 bg-ink-800/95 px-4 py-3 shadow-glow backdrop-blur"
+        className="sundial-tip pointer-events-none absolute z-20 max-w-[280px] rounded-xl border border-white/10 bg-ink-800/95 px-4 py-3 shadow-glow backdrop-blur"
       >
         <div className="tip-name text-lg font-bold leading-snug text-cream break-words" />
         <div className="mt-1 flex items-baseline gap-1.5 text-sm">

@@ -57,8 +57,11 @@ export interface SpendData {
   tree: SpendNode;
   vendorIndex: VendorRow[];
   agencyIndex: AgencyRow[];
-  evidence: Record<string, EvidenceTx[]>;
 }
+
+/** Lazy-loaded evidence: nodeId -> top transactions. Fetched separately from the
+ *  main artifact (see loadEvidence) so the initial page payload stays small. */
+export type EvidenceMap = Record<string, EvidenceTx[]>;
 
 /** Which fiscal-year lens is active. */
 export type FYMode = 'all' | 'fy2022' | 'fy2023';

@@ -19,6 +19,10 @@ const ROOT = path.resolve(__dirname, '..');
 const DATA_DIR = path.join(ROOT, 'data');
 const OUT_DIR = path.join(ROOT, 'public', 'artifacts');
 const OUT_FILE = path.join(OUT_DIR, 'spending.json');
+// Evidence is the largest section (~80% of the old combined artifact). It is
+// written to a SEPARATE file and lazy-loaded by the client only when the Verify
+// panel needs it, keeping the initial page payload (tree + indexes) small.
+const EVIDENCE_FILE = path.join(OUT_DIR, 'evidence.json');
 
 // How many real slices are drawn per ring before the rest fold into a single
 // nested "Other" bucket. Kept small so slices stay large and labels readable;
@@ -408,12 +412,13 @@ async function main() {
     tree,
     vendorIndex,
     agencyIndex,
-    evidence: evidenceOut,
   };
 
   fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(OUT_FILE, JSON.stringify(out));
+  fs.writeFileSync(EVIDENCE_FILE, JSON.stringify(evidenceOut));
   const sizeMb = (fs.statSync(OUT_FILE).size / 1e6).toFixed(1);
+  const evidenceMb = (fs.statSync(EVIDENCE_FILE).size / 1e6).toFixed(1);
   const secs = ((Date.now() - t0) / 1000).toFixed(1);
   console.log('[build-data] ----------------------------------------');
   console.log(`[build-data] grand total : $${grand.total.toLocaleString(undefined, { maximumFractionDigits: 0 })}`);
@@ -424,6 +429,7 @@ async function main() {
   console.log(`[build-data] vendors     : ${vendorGlobal.size.toLocaleString()}`);
   console.log(`[build-data] reconciled  : OK (diff $${reconError.toFixed(2)})`);
   console.log(`[build-data] wrote ${OUT_FILE} (${sizeMb} MB) in ${secs}s`);
+  console.log(`[build-data] wrote ${EVIDENCE_FILE} (${evidenceMb} MB, lazy-loaded by Verify)`);
 }
 
 main().catch((e) => {

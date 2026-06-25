@@ -14,6 +14,7 @@
 export type ActivityType =
   | 'app_load'
   | 'data_loaded'
+  | 'evidence_load'
   | 'navigate'
   | 'expand_other'
   | 'reset'
