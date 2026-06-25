@@ -362,7 +362,7 @@ export default function App() {
                   Equal
                 </button>
               </div>
-              <button onClick={() => { sundialRef.current?.highlight([]); sundialRef.current?.reset(); logActivity('reset'); }} className="btn-ghost text-xs">
+              <button onClick={() => { sundialRef.current?.reset(); logActivity('reset'); }} className="btn-ghost text-xs">
                 <RotateCcw size={13} /> Reset
               </button>
               <button onClick={downloadActivity} className="btn-ghost text-xs" title="Download the runtime activity log for this session">

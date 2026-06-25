@@ -64,6 +64,7 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
     zoomTo: (n: HNode) => void;
     nodeById: Map<string, HNode>;
     refreshAppearance: () => void;
+    clearGlow: () => void;
   } | null>(null);
 
   // Build the d3 hierarchy. Two layouts:
@@ -573,7 +574,7 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
       hit.attr('pointer-events', (d) => (arcVisible(d.current) ? 'all' : 'none'));
     }
 
-    apiRef.current = { zoomTo, nodeById, refreshAppearance };
+    apiRef.current = { zoomTo, nodeById, refreshAppearance, clearGlow };
 
     // ---- first-load reveal (dashboard sweep) ----
     // Car gauge self-test on ignition: the needle turns a full clockwise revolution
@@ -611,13 +612,16 @@ const Sundial = forwardRef<SundialHandle, Props>(function Sundial(
     reset() {
       const api = apiRef.current;
       if (!api) return;
-      highlightRef.current = new Set();
       const r = api.nodeById.get('root');
       if (r) {
         api.zoomTo(r);
         onSelect(r.data);
       }
-      api.refreshAppearance();
+      // zoomTo already restores arc opacity + the hit layer to the root view;
+      // only the AI highlight glow needs clearing. Calling the full
+      // refreshAppearance here would read mid-zoom (stale) geometry and stomp
+      // the just-set pointer-events / opacities — the Reset glitch.
+      api.clearGlow();
     },
     currentId() {
       return focusRef.current?.data.id ?? 'root';

@@ -183,7 +183,15 @@ app.post('/api/log', (req, res) => {
   const body = req.body ?? {};
   const list = Array.isArray(body) ? body : [body];
   activity.append(list, { ip: req.ip }).catch((err) => console.error('[log] append failed', err.message));
-  res.json({ ok: true });
+  // Echo the clear epoch so each browser can wipe its OWN local copy once an
+  // admin has wiped the server (see src/lib/activityLog.ts).
+  res.json({ ok: true, clearedAt: activity.getClearedAt() });
+});
+
+// Public, read-only clear epoch. Reveals only a timestamp (never log data), so
+// it needs no token — it lets a freshly loaded page sync without an interaction.
+app.get('/api/log/state', (_req, res) => {
+  res.json({ clearedAt: activity.getClearedAt() });
 });
 
 // ---- hidden, token-protected log admin endpoints ----
@@ -197,7 +205,7 @@ app.post('/api/log/clear', async (req, res) => {
   try {
     const cleared = await activity.clear();
     console.log(`[log] cleared ${cleared} entr${cleared === 1 ? 'y' : 'ies'} (${activity.getMode()})`);
-    res.json({ ok: true, cleared, store: activity.getMode() });
+    res.json({ ok: true, cleared, store: activity.getMode(), clearedAt: activity.getClearedAt() });
   } catch (err) {
     console.error('[log] clear failed', err.message);
     res.status(500).json({ ok: false, error: 'clear_failed' });

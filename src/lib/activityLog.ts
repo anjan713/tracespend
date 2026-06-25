@@ -35,6 +35,10 @@ export interface ActivityEntry {
 }
 
 const STORAGE_KEY = 'tracespend.activity.v1';
+// Last server clear-epoch this browser has already applied. When the server
+// reports a NEWER epoch (an admin ran the token-gated wipe), we drop our own
+// localStorage copy so the in-app counter / download reflect the wipe too.
+const CLEARED_KEY = 'tracespend.activity.clearedAt';
 const MAX_ENTRIES = 5000;
 
 function newId(): string {
@@ -75,6 +79,28 @@ function notify() {
   for (const cb of listeners) cb(entries.length);
 }
 
+// Drop our local copy when the server reports a clear-epoch newer than the one
+// we last applied. Idempotent: re-seeing the same epoch is a no-op, so logging
+// resumes normally right after a wipe.
+function applyServerClear(serverClearedAt: unknown) {
+  if (typeof serverClearedAt !== 'string' || !serverClearedAt) return;
+  let last: string | null = null;
+  try {
+    last = typeof localStorage !== 'undefined' ? localStorage.getItem(CLEARED_KEY) : null;
+  } catch {
+    /* ignore */
+  }
+  if (last && serverClearedAt <= last) return; // already applied
+  entries = [];
+  persist();
+  try {
+    if (typeof localStorage !== 'undefined') localStorage.setItem(CLEARED_KEY, serverClearedAt);
+  } catch {
+    /* ignore */
+  }
+  notify();
+}
+
 function postToServer(entry: ActivityEntry) {
   if (typeof fetch === 'undefined') return;
   try {
@@ -83,10 +109,31 @@ function postToServer(entry: ActivityEntry) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),
       keepalive: true,
-    }).catch(() => {});
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => applyServerClear(j?.clearedAt))
+      .catch(() => {});
   } catch {
     /* server not running — local sinks still hold the entry */
   }
+}
+
+// On load, sync the clear-epoch even without an interaction, so a page opened
+// after an admin wipe drops its stale local log immediately. Also re-checks
+// when the tab regains focus (admin may wipe while the tab sits in background).
+function syncClearState() {
+  if (typeof fetch === 'undefined') return;
+  fetch('/api/log/state')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((j) => applyServerClear(j?.clearedAt))
+    .catch(() => {});
+}
+
+if (typeof document !== 'undefined') {
+  syncClearState();
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') syncClearState();
+  });
 }
 
 /** Record one interaction. Never throws. */

@@ -308,8 +308,7 @@ badge and the chip "numbers verified by the query worker."
 ### Video walkthrough (submission)
 
 **Format:** record as **`.mp4`, `.mov`, or `.webm`** and upload directly on the
-**Provn** platform. A full teleprompter script lives in
-[`DEMO_SCRIPT.md`](./DEMO_SCRIPT.md).
+**Provn** platform. 
 
 **Structure (target ~8–11 min):**
 

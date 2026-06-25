@@ -21,6 +21,10 @@ const SCHEMA = `
     detail  JSONB,
     ip      TEXT
   );
+  CREATE TABLE IF NOT EXISTS activity_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT
+  );
 `;
 
 /**
@@ -29,9 +33,43 @@ const SCHEMA = `
 export function createActivityStore({ databaseUrl, logFile }) {
   let pool = null;
   let mode = 'file'; // until init() upgrades us to 'postgres'
+  // ISO timestamp of the last admin wipe (or null). Surfaced to clients so each
+  // browser can wipe its OWN localStorage activity log once the server is cleared.
+  let clearedAt = null;
+  const metaFile = `${logFile}.meta.json`;
 
   // Render (and most hosted PG) require TLS; a local Postgres does not.
   const needsSsl = (url) => !/(localhost|127\.0\.0\.1|::1)/.test(url);
+
+  // ---- clear-epoch persistence (survives restarts in both backends) ----
+  async function loadClearedAt() {
+    if (mode === 'postgres' && pool) {
+      try {
+        const { rows } = await pool.query("SELECT value FROM activity_meta WHERE key = 'cleared_at'");
+        return rows[0]?.value ?? null;
+      } catch {
+        return null;
+      }
+    }
+    try {
+      const raw = await fs.promises.readFile(metaFile, 'utf8');
+      return JSON.parse(raw)?.clearedAt ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function saveClearedAt(iso) {
+    if (mode === 'postgres' && pool) {
+      await pool.query(
+        `INSERT INTO activity_meta (key, value) VALUES ('cleared_at', $1)
+         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+        [iso]
+      );
+      return;
+    }
+    await fs.promises.writeFile(metaFile, JSON.stringify({ clearedAt: iso }));
+  }
 
   async function init() {
     if (databaseUrl) {
@@ -54,6 +92,7 @@ export function createActivityStore({ databaseUrl, logFile }) {
       }
     }
     if (mode === 'file') fs.mkdirSync(path.dirname(logFile), { recursive: true });
+    clearedAt = await loadClearedAt();
     return mode;
   }
 
@@ -87,20 +126,23 @@ export function createActivityStore({ databaseUrl, logFile }) {
 
   /** Wipe the log back to zero. Returns how many entries were removed. */
   async function clear() {
+    let n = 0;
     if (mode === 'postgres' && pool) {
       const { rows } = await pool.query('SELECT count(*)::int AS n FROM activity');
-      const n = rows[0]?.n ?? 0;
+      n = rows[0]?.n ?? 0;
       await pool.query('TRUNCATE activity RESTART IDENTITY');
-      return n;
+    } else {
+      try {
+        const raw = await fs.promises.readFile(logFile, 'utf8');
+        n = raw.split('\n').filter((l) => l.trim()).length;
+      } catch {
+        /* no file yet — nothing to clear */
+      }
+      await fs.promises.writeFile(logFile, '');
     }
-    let n = 0;
-    try {
-      const raw = await fs.promises.readFile(logFile, 'utf8');
-      n = raw.split('\n').filter((l) => l.trim()).length;
-    } catch {
-      /* no file yet — nothing to clear */
-    }
-    await fs.promises.writeFile(logFile, '');
+    // Stamp the wipe so connected browsers can drop their own local copy.
+    clearedAt = new Date().toISOString();
+    await saveClearedAt(clearedAt);
     return n;
   }
 
@@ -121,5 +163,5 @@ export function createActivityStore({ databaseUrl, logFile }) {
     }
   }
 
-  return { init, append, clear, exportNdjson, getMode: () => mode };
+  return { init, append, clear, exportNdjson, getMode: () => mode, getClearedAt: () => clearedAt };
 }
