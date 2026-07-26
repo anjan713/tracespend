@@ -59,3 +59,35 @@ test('fiscalYear group-by drops a single-year filter (trend guard)', () => {
   assert.equal(r.query.filter.fyIdx, null);
   assert.equal(r.query.resolved.year, undefined);
 });
+
+// "Explain ACME" parses to groupBy vendor + filters.vendor ACME, which ranks a
+// list of one and reports it as 100% of itself. The ranking is dropped so the
+// answer is the thing's total.
+test('ranking a dimension pinned by its own filter collapses to a total', () => {
+  for (const [groupBy, filters, resolvedKey, resolvedName] of [
+    ['vendor', { vendor: 'ACME' }, 'vendor', 'ACME INC'],
+    ['agency', { agency: 'health care' }, 'agency', 'Health Care Authority'],
+    ['category', { category: 'Capital Outlays' }, 'category', 'Capital Outlays'],
+    ['subcategory', { subcategory: 'Office Supplies' }, 'subcategory', 'Office Supplies'],
+  ]) {
+    const r = normalizeQuery({ groupBy, filters }, ds);
+    assert.equal(r.ok, true, `${groupBy} should normalize`);
+    assert.equal(r.query.groupBy, 'none', `${groupBy} pinned by its own filter should collapse`);
+    // The filter itself survives — only the redundant ranking is dropped.
+    assert.equal(r.query.resolved[resolvedKey], resolvedName);
+  }
+});
+
+test('a group-by on a DIFFERENT dimension than the filter is left alone', () => {
+  const cases = [
+    ['agency', { vendor: 'ACME' }], // who paid ACME the most?
+    ['vendor', { agency: 'health care' }], // HCA's top vendors
+    ['fiscalMonth', { vendor: 'ACME' }], // ACME over time
+    ['category', { agency: 'health care' }], // what HCA spends on
+  ];
+  for (const [groupBy, filters] of cases) {
+    const r = normalizeQuery({ groupBy, filters }, ds);
+    assert.equal(r.ok, true);
+    assert.equal(r.query.groupBy, groupBy, `${groupBy} + ${JSON.stringify(filters)} should be untouched`);
+  }
+});
