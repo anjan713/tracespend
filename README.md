@@ -1,325 +1,203 @@
-# Tracespend — *Where did the money go?*
+# Tracespend — *where did the money go?*
 
-website link :  [tracespend](https://tracespend.onrender.com/)
+A working proof-of-concept that lets a non-technical city councilmember interrogate
+**935,853 government vendor-payment records** as one animated **sundial** — by asking
+plain-English questions. No SQL, no spreadsheets, no BI training.
 
-An animated **sundial** explorer that lets a non-technical person (think: a city
-councilmember) understand **$63B of state vendor payments** in seconds — and
-**trust every number** they repeat in public.
+Type *"which agencies spend the most?"* → the sundial rotates and zooms to that answer,
+and a short, **source-verified** finding appears beside it. Click any arc to follow the
+money further, from **Category → Agency → Vendor**.
 
-Ask a plain-English question; an AI agent answers *and* drives the chart, while a
-verification panel shows the exact figures and the real transactions behind them.
+> ▶ **Live demo:** _<!-- paste your Vercel URL here after deploying -->_
+> The frontend is static output on a CDN, so the sundial renders on first visit with
+> **nothing to wake up**. Only asking a question invokes a server function.
 
-> Portfolio proof-of-concept. Theme is *gold-on-dark* (visual inspiration only).
-
----
-
-## Why this design
-
-A first-time budget viewer doesn't want a spreadsheet — they want to **follow the
-money** and **trust the number**. Three linked panels do exactly that:
-
-| Panel | Role |
-|------|------|
-| **Ask** (left) | Natural-language questions + one-click starter prompts. |
-| **Explore** (center) | Animated sundial drilling `Category → Agency → Vendor`. |
-| **Verify** (right) | Exact totals, FY-over-FY change, top contributors, and **evidence** (the actual payments). |
-
-On wide screens the **Ask** and **Verify** panels are **drag-resizable** (double-click
-a divider to reset; widths persist in `localStorage`) — the center sundial is always
-protected from being squeezed below a usable width.
-
-**Hierarchy:** `Category → Agency → Vendor` (SubCategory dropped — *Agency* is the
-intuitive "who"). Each ring is deliberately sparse: all **9 categories**, then the
-**top 5 agencies** per category and **top 6 vendors** per agency, with the long tail
-folded into one clickable **"Other"** arc. Clicking "Other" drills into the next
-page — up to **15 agencies** / **12 vendors** — after which the remaining tail folds
-into a single flat leaf. Nothing is hidden — totals always reconcile and the top
-**5,000** vendors stay searchable by name.
+**Stack:** TypeScript · React (Vite) · D3 · Express (Node ESM) · any OpenAI-compatible
+model endpoint (default `gpt-4.1-nano`). **Data:** WA State Vendor-Payments 2021–23
+(two fiscal-year CSVs, 935,853 rows, $63.2B), precompiled to two in-memory artifacts.
 
 ---
 
-## Reliability (the most important part)
+## What it looks like
 
-For a councilmember, the numbers must be exact, traceable, and reproducible.
+The resting state — all 9 spending categories, then the agencies beneath them, sized by
+dollars and drillable outward. The long tail of each ring folds into a clickable
+**"Other"** arc, so nothing is dropped and the totals still reconcile:
 
-- **Precompute, never compute live.** `scripts/build-data.mjs` emits the sundial
-  artifact (`public/artifacts/spending.json`); `scripts/build-query-worker.mjs` emits a
-  compact encoded snapshot of all ~935k rows (`server/artifacts/dataset.json`, integer
-  cents). Nothing parses CSVs at request time.
-- **The AI never does math.** For Q&A, Anthropic only turns a question into a
-  validated `Query` (intent + args) — *never a number*. A server-side, code-only
-  **query worker** (`server/query-worker/`) computes the exact figures, code
-  composes the factual sentence, and Anthropic only *rewords* it, copying every
-  number verbatim. The verified sentence + fact chips are always shown.
-- **Totals reconcile — twice.** "Other" rollups carry the full remainder and the
-  build **asserts** `sum(parts) === grandTotal`. `npm test` re-checks the artifact
-  *and* reconciles the query worker's numbers back to it to the cent (grand total,
-  FY splits, every category, top agencies/vendors).
-- **Validated + capped + logged.** Names resolve to canonical (no silent $0); bad
-  enums are rejected; ≤1 parse + ≤1 reword call per question with a request
-  timeout; every model input is recorded at one choke-point (`logs/ai-inputs.log`).
-- **Graceful degradation.** The sundial works fully offline. Answering is
-  Anthropic-only (your choice): no key/server → a clear "AI unavailable — retry".
+![The Tracespend sundial at rest, showing $63.2B across nine spending categories](screenshots/sundial.png)
 
-Verified at build time:
+**Ask a question → the sundial answers.** Plain English in; the chart zooms to the
+answer, and the finding arrives with the exact figures that produced it — the AI's
+sentence on top, the code-composed sentence and fact chips beneath it, and the raw
+payments behind the selection on the right:
+
+![Answering "which agencies spend the most?" — the chart zooms to Health Care Authority and shows verified figures](screenshots/ask-answer.png)
+
+**Hover any arc** for its exact total and share; the rest of the chart dims so the
+comparison stays readable:
+
+![Hovering the Grants, Benefits & Client Services arc, showing $49.9B and 79% of all spending](screenshots/hover.png)
+
+---
+
+## 1. Problem
+
+**The user.** A newly seated **city councilmember** who has to vote on, defend, and
+explain a budget made of hundreds of thousands of vendor payments. The data is public
+and important — who does the government pay, how much, for what — but it arrives as a
+217 MB export across two fiscal-year tabs. To get one story lead today you need pivot
+tables or SQL. That's a wall between the person and the decision.
+
+**The pain I addressed — making a number safe to repeat out loud.** The hard part isn't
+finding *a* figure; it's knowing you can say it in a public meeting without being wrong.
+A councilmember quoting a hallucinated total is a career problem, not a UX problem. So
+the product is built around two jobs, in this order: **orientation** (where did it
+actually go?) and **trust** (can I repeat this?). Every answer arrives with the exact
+figures that produced it, and every figure reconciles to the source **to the cent**.
+
+**Why this direction (over a dashboard or a chat box).**
+
+- **A dashboard makes the user do the analysis** by staring at charts. A councilmember
+  wants the conclusion, then the ability to dig. So the answer is *one finding + one
+  focused view*, not ten widgets.
+- **A pure chatbot hides structure — and cannot be trusted with dollars.** Spending is
+  inherently hierarchical, so the hero is a chart you interrogate; the AI is the way
+  *in*, never the output itself.
+- **A bar chart or treemap** is honest about proportion but clumsy to drill, and the
+  small-but-politically-charged line items vanish.
+
+The result is one screen: a full-bleed sundial with an ask bar and a verify panel. Ask →
+the whole chart breathes down to the answer. Value without the tools.
+
+---
+
+## 2. Tech & architectural choices
+
+### How it works (one sentence)
+
+The AI turns a question into a **structured query**; our code computes **every number**
+and composes the factual sentence; the AI then only **rewords** that sentence, copying
+each figure verbatim.
 
 ```
-grand total : $63,247,181,911   (FY2022 $29.5B + FY2023 $33.7B)
-rows         : 935,853          reconciled: OK (diff $0.00)
+question ──▶ parseQuestion ──▶ Query{metric, groupBy, filters}
+                (logged)              │
+                                      ├─▶ normalize   → defaults, clamps, reject bad enums
+                                      ├─▶ resolveName → canonical name, or a friendly "no match"
+                                      ├─▶ runQuery    → exact numbers          (code, never AI)
+                                      └─▶ compose     → the factual sentence   (code, never AI)
+                                                          │
+              factual sentence ──▶ summarize ──▶ one-line finding  (logged; numbers copied verbatim)
 ```
 
+### Key decisions & trade-offs (named on purpose)
+
+**AI parses intent; code owns the numbers.** The model only emits a query object and
+rephrases a pre-computed sentence — it never adds up dollars. *Trade-off:* more prompt
+engineering and a validation layer to maintain, in exchange for auditable, never
+hallucinated figures. For someone quoting a budget in public, a wrong dollar amount is a
+credibility disaster, so this line is non-negotiable.
+→ [`server/ai.mjs`](server/ai.mjs) vs [`server/query-worker/`](server/query-worker/)
+
+**Precompute, never compute live.** Two build steps turn the 217 MB of CSVs into a
+sundial artifact and a dictionary-encoded, **integer-cent** snapshot the server loads in
+~1 s; queries scan it in tens of ms. *Trade-off:* derived artifacts and full-scan queries
+instead of an indexed database — and new data means a rebuild, not a live query. Right
+for a POC; the CSVs stay the single source of truth (the artifacts are build output, like
+compiled code).
+
+**Money in integer cents, never floats.** Summing ~936K float dollars drifts. Cents don't.
+*Trade-off:* one conversion at the edges, in exchange for a test that reconciles the query
+worker back to an independently-built artifact **to the cent** — grand total, FY splits,
+every category, top agencies and vendors.
+
+**The sundial shows bounded rings, not all 96,907 vendors at once.** Each ring is
+deliberately sparse: 9 categories, then the top agencies per category and top vendors per
+agency, with the long tail folded into a clickable **"Other"** arc that pages into the
+next ring. *Trade-off:* "everything at once" for legibility. Nothing is hidden — totals
+always reconcile, and the top 5,000 vendors stay searchable by name.
+
+**One model endpoint, not a provider abstraction.** Answering speaks the OpenAI
+chat-completions wire format to one configured target. OpenAI, OpenRouter, Groq,
+Anthropic's compatible endpoint, and a local Ollama all take the same path — three env
+vars, no code branch. *Trade-off:* we hand-handle the places "OpenAI-compatible" isn't
+(`max_tokens` vs `max_completion_tokens`; models that refuse `temperature`) rather than
+inheriting an SDK's coverage. Each concession is deliberate and named in
+[`server/model-endpoint.mjs`](server/model-endpoint.mjs); nothing is dropped blindly.
+
+**Reimbursements are INCLUDED by default.** Interagency and intra-agency transfers are
+real ledger entries, so the default total is the ledger total. Excluding them is an
+explicit, opt-in filter rather than a silent one — a default that quietly shrinks a
+number is exactly the kind of thing a councilmember gets caught out by.
+
+**Temperature 0 everywhere.** Neither job wants creativity: choosing a query is
+classification, and rewording must not drift from a sentence whose numbers are already
+correct. Fixed at the single call site so no future caller can reintroduce variation.
+
+### Data handling for the AI (hard constraint)
+
+Every input sent to the model — **and every reply that comes back** — passes through one
+choke-point, [`server/ai-input-log.mjs`](server/ai-input-log.mjs), recording the
+timestamp, the model name, the exact payload, and the numbers the query worker computed.
+Payloads are deliberately tiny (a question, or one already-correct sentence) — **never
+raw rows** — which keeps logging trivial and avoids sending the dataset to a third party.
+Logging both directions is what turns an opaque parse failure into a visible cause. In
+production this would write to a managed sink (Datadog / BigQuery) with retention and PII
+review.
+
+
 ---
 
-## The "wow factor" — animations
+## 3. AI usage log
 
-All transitions are eased, interruptible, and honor `prefers-reduced-motion`.
+Three significant moments where I worked with — and pushed back on — the AI (Claude Code
+as the pair-programmer; the configured endpoint in-app).
 
-- **First-load reveal** — rings unfurl from the center; the hub total counts up.
-- **AI camera moves** — answering a question zooms/rotates to the relevant slice,
-  dims the rest, and pulses a gold glow on the focus arc.
-- **Drill-in / drill-out** — buttery D3 arc-tween with an animated breadcrumb.
-- **Live data motion** — FY lens changes re-animate; hover lift; number roll-ups.
+### 1 — "Let the AI do the math" → rejected
+
+The obvious pipeline was to hand the model the matching rows and let it compute and
+summarize. I watched it round figures and, once, invent a total. Now the AI only
+interprets intent ([`ai.mjs`](server/ai.mjs)) and a deterministic worker computes
+([`query-worker/`](server/query-worker/)) — auditable numbers over open-ended chat.
+
+### 2 — A scoped fact became a false global claim → redirected *(the key moment)*
+
+*"Explain MOLINA HEALTHCARE OF WASHIN"* produced a **valid but self-cancelling** query —
+filter to one vendor, then rank vendors — so it won its own ranking at "100.0% of
+$388,668,593", and rewording dropped the scope into "the biggest vendor in FY2022–FY2023".
+Every digit was copied correctly; the *meaning* wasn't. **A guardrail that protects digits
+does not protect truth** — so `normalizeQuery` now collapses a group-by already pinned by
+its own filter, and "Top 1 share: 100%" is gone. Both regression-tested.
+
+### 3 — Two parsing bugs caught by testing against ground truth
+
+**(a)** *"What changed from 2022 to 2023?"* set a single-year filter and collapsed the
+trend to one point — fixed by a prompt rule **and** a code guard, because a rule the model
+can ignore isn't a rule. **(b)** "Dept of Fish & Wildlife" matched nothing and returned a
+confident **$0**; names now resolve to canonical, and a miss says so out loud.
+
+### The line I drew
+
+> The AI may interpret intent and phrase language. It may never produce a number, and it
+> may never decide what a number means. Both of those live in code.
 
 ---
 
-## Run it
+## Running it
 
 ```bash
+# 1. install
 npm install
-npm run build:data     # sundial artifact -> public/artifacts/spending.json (~40s, one-time)
-npm run build:worker   # encoded dataset  -> server/artifacts/dataset.json  (~16s, one-time)
-npm run dev            # http://localhost:5173  (the sundial works offline)
+
+# 2. build the two artifacts from the CSVs in data/  (one time)
+npm run build:data      # sundial artifact  -> public/artifacts/spending.json  (~40s)
+npm run build:worker    # encoded dataset   -> server/artifacts/dataset.json   (~16s)
+
+# 3. add a model key (optional — the sundial works entirely without one)
+cp .env.example .env    # then set MODEL_API_KEY
+
+# 4. run (web :5173, proxying /api to the server on :8787)
+npm run dev             # terminal 1 — http://localhost:5173
+npm run server          # terminal 2 — only needed for asking 
 ```
 
-Ask-the-data Q&A (Anthropic-only, retry-then-error — needs a key + the server):
-
-```bash
-cp .env.example .env   # set ANTHROPIC_API_KEY=...  (Claude)
-npm run server         # http://localhost:8787 (vite proxies /api to it)
-```
-
-Uses Anthropic's Messages API (set `ANTHROPIC_MODEL` to one your key can access;
-default `claude-haiku-4-5-20251001`). The LLM
-only chooses the `Query` and rewords the final sentence — it never computes or
-alters a number. Without a key, the chart still works; answering returns a clear
-"AI unavailable — retry".
-
-Verify and build:
-
-```bash
-npm test               # reliability assertions on the artifact
-npm run build          # type-check + production bundle
-```
-
-### Deploy (Render — one service)
-In production the Express server doubles as the static host, so a **single Render
-Web Service** serves the app **and** the `/api` routes on the same origin (matching
-the client's relative `fetch('/api/...')`). A `render.yaml` blueprint is included:
-
-- **Build:** `npm install --include=dev && npm run build`
-- **Start:** `node server/index.mjs` (serves `dist/` + `/api/*`; health at `/api/health`)
-- **Env:** set **`ANTHROPIC_API_KEY`** (without it the chart works but Ask returns a
-  clean 503); `NODE_VERSION` is pinned to 20.
-
-Push the repo to GitHub, then in Render pick **New → Blueprint** and select it.
-
-### Try asking
-- *Where did the money go?*
-- *Which agencies spend the most?*
-- *Show me Grants & Client Services*
-- *What grew the most in FY2023?*
-- *Show vendors for Health Care Authority*
-- *Show FY2023 only*
-
----
-
-## How it works
-
-```
-data/*.csv ──build:data────> public/artifacts/spending.json  (sundial tree + indexes)
-           └─build:worker──> server/artifacts/dataset.json    (encoded ~935k rows)
-
-Ask ─POST /api/ask─> server/index.mjs
-  1 parseQuestion   Anthropic → strict JSON Query (no numbers)   [retry ×2, else 503]
-  2 normalize       defaults, clamps, reject bad enums
-  3 resolveNames    "Dept of Fish & Wildlife" → canonical (or a friendly "no match")
-  4 runQuery        code-only query worker → exact numbers
-  5 composeSummary  code owns the sentence + every figure
-  6 summarize       Anthropic rewords only — numbers copied verbatim (else fallback)
-  → { answer, prose, facts, action }  → React moves the D3 sundial
-```
-
-### Project layout
-| Path | Purpose |
-|------|---------|
-| `scripts/build-data.mjs` | Two-pass CSV → sundial artifact + reconciliation assertion. |
-| `scripts/build-query-worker.mjs` | Encode raw CSVs → `server/artifacts/dataset.json` (dictionary + integer cents). |
-| `server/query-worker/` | Code-only worker: `dataset` · `query` (runQuery) · `resolve` · `normalize` · `compose`. |
-| `server/ai.mjs` | AI boundary: `parseQuestion` + `summarize` + single logging choke-point. |
-| `server/index.mjs` | Server: `/api/ask` pipeline + legacy `/api/prose` + `/api/log`. |
-| `src/lib/ask.ts` | Client wrapper for `/api/ask` (async, error/retry). |
-| `src/lib/intent.ts` | Starter prompts + small name helpers (retired from the AI path). |
-| `src/components/Sundial.tsx` | Custom D3 zoomable sunburst + animation API. |
-| `src/components/AskPanel.tsx` | Async chat UI: Thinking… / answer + verified figures / retry. |
-| `test/reconcile.test.mjs` · `test/eval.test.mjs` | Artifact reliability + query-worker↔artifact reconciliation. |
-
-### Data note
-The raw source CSVs + media (`data/`, ~217MB) and `logs/` are git-ignored
-(build-time/runtime only). The two small generated artifacts
-(`public/artifacts/spending.json`, `server/artifacts/dataset.json`) **are committed**
-so the app runs without the CSVs; regenerate them any time with
-`npm run build:data` and `npm run build:worker`.
-
-### Data cleaning
-The source is a fixed-width-style government export, so both build scripts apply
-the **same** deterministic cleaning pass (and reconcile to the cent afterwards):
-
-- **Whitespace / BOM / CRLF / quoted commas** — every field is trimmed; the parser
-  strips the byte-order mark and tolerates Windows line endings and embedded commas.
-- **Types validated, never coerced silently** — `FY`→int, `Amount`→float; a row is
-  dropped only if the fiscal year isn't 2022/2023, a category/agency/vendor is empty,
-  or the amount isn't finite. On this dataset **0 of 935,853 rows are dropped**.
-- **Money in integer cents** — sums are exact (no float drift).
-- **Negatives and zeros are kept, never filtered** — the data includes **1,083
-  negative rows** (refunds / reversals / accounting corrections, largest ≈ −$1.67M)
-  and **54 zero-dollar rows**. They remain in every total so agency/vendor figures
-  are **net, not overstated** — the only spend-reducing toggle is the opt-in,
-  category-based `excludeReimbursements` (off by default).
-- **Fiscal months normalized across the biennium** — the 2021–23 export numbers
-  months continuously (FY2022 = 1–12, FY2023 = 13–24); the worker maps the second
-  year back to 1–12 so per-year monthly trends are correct.
-- **Vendor de-duplication (conservative)** — vendor names are canonicalized
-  (case, `&`/`AND`, punctuation, whitespace, and legal-suffix synonyms like
-  `INCORPORATED`→`INC`) so obvious printed-name variants merge while the original
-  display name is preserved. This is a *safe, deterministic* pass, **not** fuzzy
-  entity resolution — true cross-spelling matching (e.g. different punctuation of
-  the same firm, or shared subsidiaries) is a **documented production gap**, since a
-  wrong merge would silently misattribute money.
-
----
-
-## Submission write-up
-
-### 1. The problem I set out to solve — and why this direction
-
-**The user pain.** A newly seated **city councilmember** has to vote on, defend,
-and explain a budget made of hundreds of thousands of vendor payments. The data
-*exists* — open-data portals, CSV exports, PDF appropriations — but it assumes you
-already know what to ask and how to query. The real pain isn't access; it's
-**orientation and trust**: *where did the money actually go,* and *can I repeat a
-number in a public meeting without being wrong?*
-
-**Why this direction over the alternatives I considered.** I deliberately did
-**not** build:
-
-- **Another dashboard / searchable table** — that's the spreadsheet they're already
-  drowning in; it answers "filter rows," not "help me understand."
-- **A bar/treemap report** — proportions are honest but drilling is clumsy and the
-  small-but-politically-charged line items disappear.
-- **A pure chatbot over the data** — fluent, but you cannot trust an LLM with
-  dollar figures, and it offers no way to *see* the shape of spending.
-
-Instead I built a **guided "follow the money" experience** around the two jobs the
-councilmember actually has: an **animated sundial** to *explore* spending outward
-(`Category → Agency → Vendor`), a **Verify panel** that turns every selection into
-exact figures plus the **real underlying payments**, and an **AI agent that
-navigates and narrates but never computes**. Exploration *and* trust, in one view.
-
-### 2. The tech & architectural choices
-
-**What I built.** A React + TypeScript + Vite + Tailwind front end with a custom
-**D3 zoomable sunburst** (`src/components/Sundial.tsx`); a two-stage **precompute**
-(`scripts/build-data.mjs` → the sundial artifact; `scripts/build-query-worker.mjs`
-→ an encoded, integer-cent snapshot of all ~935k rows); and an Express server
-(`server/index.mjs`) with a strict **AI boundary** (`server/ai.mjs`) wrapped around
-a **code-only query worker** (`server/query-worker/`).
-
-**How it works.** A question flows: Anthropic turns it into a *validated `Query`*
-(intent + args, **no numbers**) → normalize/clamp/reject-bad-enums → resolve names
-to canonical → the **code-only worker computes every figure** over the full dataset
-→ code composes the factual sentence → Anthropic **rewords only**, copying numbers
-verbatim → React moves the sundial. The chart works **fully offline**; answering is
-Anthropic-only with an explicit "AI unavailable — retry."
-
-**The decisions that define it** (trade-offs stated plainly):
-
-- **The AI never produces a number** — correctness/auditability over open-ended
-  chat. The model emits a query and rewords; code owns all math.
-- **Precompute, never compute live** — instant + deterministic, at the cost of
-  data freshness (new data = a rebuild, not a live query).
-- **Equal-angle slices by default** — small line items stay clickable/readable for
-  a newcomer; a "By amount" toggle preserves true proportions for power users.
-- **Totals reconcile twice** — a build-time assertion (`sum(parts) === grandTotal`)
-  *and* a test that reconciles the worker back to the artifact **to the cent**.
-
-**What I explicitly deferred** (prototype, on purpose): a real datastore (the
-snapshot is in memory), auth, rate limiting, prompt-injection hardening, caching,
-observability, an accessibility pass for the SVG, multi-year / multi-jurisdiction
-config (the FY range and category set track this dataset), and live data freshness.
-
-**What I'd change for production:** move the data to a **columnar warehouse**
-(DuckDB / BigQuery) with **incremental ingestion** instead of full rebuilds; put
-the API behind **auth, rate limits, caching, and monitoring**; harden the AI
-boundary against prompt injection and confirm **no PII ever reaches the model**;
-broaden the query worker's supported intents (or formalize them as a validated
-tool schema); and make the sundial keyboard- and screen-reader-accessible.
-
-### 3. AI usage log
-
-Three significant interactions — *what I asked, what it gave, what I kept / changed
-/ rejected.*
-
-- **Wiring up the "ask the data" agent.** *Asked:* let users ask budget questions
-  in plain English and get answers. *Gave:* a flow where the **model answered
-  directly** and produced the totals itself. *Kept:* the conversational UX and
-  having the answer drive the chart. **Rejected:** the model computing figures — I
-  caught it rounding and occasionally inventing numbers. **Changed:** re-architected
-  so the model only emits a validated query and rewords a code-authored sentence,
-  with a query worker doing the math and tests reconciling every number to source.
-- **The drill-in animation glitch.** *Asked* (with a screen recording): fix the
-  lingering "fan" of thin arcs when drilling into a sparse node. *Gave:* a fix that
-  faded outgoing arcs across the whole transition — which was *itself* the cause.
-  **Rejected** that approach; **changed** it to snap outgoing arcs away instantly
-  and animate only the destination; **kept** the eased arc-tween, then had it
-  **extract the geometry into a tested module** with regression tests so it can't
-  regress.
-- **Readability of small slices + the "Other" model.** *Asked:* small slices are
-  unreadable and we can't see much. *Gave:* shrink the labels and keep
-  area-proportional sizing. **Rejected** shrinking labels; **changed** the default
-  to **equal-angle** slices and rebuilt the long tail into **paged, drillable
-  "Other"** rings (chose *"expand into a new ring"* over a flat cutoff); **kept** an
-  optional "By amount" toggle for honest proportions.
-
-### Mandatory AI question — one redirection moment (script for the video)
-
-> *Walk me through one moment where you redirected what the AI gave you.*
-
-The clearest one was the **agent's architecture**. When I first asked the AI to
-build the "ask the data" feature, it wired the model up to **answer questions
-directly** — i.e., to produce the dollar figures itself. That didn't meet the bar:
-a budget tool's entire value is trust, and I watched the model **round figures and,
-once, invent a total** that wasn't in the data. So I redirected the whole design:
-the model is now **forbidden from emitting a number** — it only turns the question
-into a *validated query* and **rewords** a sentence my code has already written,
-while a deterministic, code-only worker computes every figure over the full dataset.
-I then added tests that **reconcile each answer back to the source to the cent.**
-That single redirection — distrusting the AI's strength (fluency) and architecting
-around its weakness (arithmetic) — is the reason the UI can show a "Reconciled"
-badge and the chip "numbers verified by the query worker."
-
-### Video walkthrough (submission)
-
-**Format:** record as **`.mp4`, `.mov`, or `.webm`** and upload directly on the
-**Provn** platform. 
-
-**Structure (target ~8–11 min):**
-
-- **Summary (~60s)** — the problem I chose and why.
-- **Code walkthrough (3–4 min)** — what I built, what I decided, what I left out.
-- **Product & production walkthrough (3–4 min)** — the user experience and why it's
-  designed this way; what would need to change before production.
-- **Mandatory AI question (1–2 min)** — the redirection moment above.
-- **Reflection (30–60s)** — what I'd build next and do differently with more time.
-
-> Communication is assessed on **clarity and logical structure**, not verbal polish
-> — speak naturally.

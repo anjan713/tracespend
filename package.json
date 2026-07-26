@@ -8,7 +8,8 @@
     "build:data": "node scripts/build-data.mjs",
     "build:worker": "node scripts/build-query-worker.mjs",
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "check:dataset": "node scripts/check-dataset.mjs",
+    "build": "npm run check:dataset && tsc -b && vite build",
     "preview": "vite preview",
     "server": "node server/index.mjs",
     "test": "node --test test/*.test.mjs"

@@ -1,75 +1,12 @@
 // The AI boundary. Two narrow jobs, nothing else:
 //   parseQuestion() — turn a question into a strict JSON Query (no numbers).
 //   summarize()     — reword an already-correct sentence (cannot change numbers).
-// Plus logAiInput()/logToolEvent() — the single choke-point that records exactly
-// what is sent to the model and what the worker computed, before every call.
+// Both go through the single model endpoint; neither knows which provider answers.
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { callModel, modelEndpointConfigured } from './model-endpoint.mjs';
+import { logAiInput, logAiReply } from './ai-input-log.mjs';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOG_DIR = path.resolve(__dirname, '..', 'logs');
-const AI_LOG = path.join(LOG_DIR, 'ai-inputs.log');
-fs.mkdirSync(LOG_DIR, { recursive: true });
-
-const API_KEY = process.env.ANTHROPIC_API_KEY;
-const MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
-const ANTHROPIC_VERSION = '2023-06-01';
 const PARSE_RETRIES = 2; // => up to 3 attempts
-
-export const llmEnabled = () => !!API_KEY;
-
-function appendLog(entry) {
-  const line = JSON.stringify({ ts: new Date().toISOString(), model: MODEL, ...entry });
-  fs.appendFile(AI_LOG, line + '\n', () => {});
-  console.log(`[ai] ${entry.stage}`, entry.question ? `· q="${entry.question}"` : '');
-}
-
-/** The single choke-point: log EXACTLY what we are about to send to the model. */
-export function logAiInput(stage, question, inputSentToModel) {
-  appendLog({ kind: 'ai_input', stage, question, inputSentToModel });
-}
-
-/** Log a worker tool call + a tiny, number-only result summary (never raw rows). */
-export function logToolEvent(question, query, result) {
-  appendLog({
-    kind: 'tool_call',
-    stage: 'runQuery',
-    question,
-    query,
-    result: result && {
-      grandTotal: result.grandTotal,
-      matchedRows: result.matchedRows,
-      top: result.groups?.[0]?.label ?? null,
-    },
-  });
-}
-
-async function callAnthropic({ system, user, maxTokens, temperature }) {
-  if (!API_KEY) throw new Error('no_api_key');
-  const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': API_KEY,
-      'anthropic-version': ANTHROPIC_VERSION,
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: maxTokens,
-      temperature,
-      system,
-      messages: [{ role: 'user', content: user }],
-    }),
-  });
-  if (!r.ok) {
-    const text = await r.text().catch(() => '');
-    throw new Error(`anthropic_${r.status}: ${text.slice(0, 200)}`);
-  }
-  const json = await r.json();
-  return json?.content?.[0]?.text?.trim() ?? '';
-}
 
 function extractJson(text) {
   // tolerate ```json fences or stray prose around the object
@@ -114,14 +51,15 @@ function parseSystemPrompt(categories) {
   ].join('\n');
 }
 
-/** Anthropic -> strict JSON Query. Retries, then throws (route returns 503). */
+/** Model -> strict JSON Query. Retries, then throws (route returns 503). */
 export async function parseQuestion(question, categories) {
   const system = parseSystemPrompt(categories);
   logAiInput('parse', question, question);
   let lastErr;
   for (let attempt = 0; attempt <= PARSE_RETRIES; attempt++) {
     try {
-      const text = await callAnthropic({ system, user: question, maxTokens: 320, temperature: 0 });
+      const text = await callModel({ system, user: question, maxTokens: 320 });
+      logAiReply('parse', text);
       return extractJson(text);
     } catch (e) {
       lastErr = e;
@@ -131,9 +69,9 @@ export async function parseQuestion(question, categories) {
   throw lastErr ?? new Error('parse_failed');
 }
 
-/** Anthropic rewrites the factual sentence; on ANY failure return it unchanged. */
+/** The model rewrites the factual sentence; on ANY failure return it unchanged. */
 export async function summarize(question, factualSentence) {
-  if (!API_KEY) return factualSentence;
+  if (!modelEndpointConfigured()) return factualSentence;
   const system =
     'You rewrite a budget answer for a non-technical city councilmember. ' +
     'Rules: (1) Output ONE friendly, plain-English sentence. ' +
@@ -142,7 +80,8 @@ export async function summarize(question, factualSentence) {
   const user = `Question: ${question}\nGrounded answer: ${factualSentence}\nRewrite it as one friendly sentence, keeping every number identical.`;
   logAiInput('reword', question, factualSentence);
   try {
-    const text = await callAnthropic({ system, user, maxTokens: 160, temperature: 0.3 });
+    const text = await callModel({ system, user, maxTokens: 160 });
+    logAiReply('reword', text);
     return text || factualSentence;
   } catch {
     return factualSentence;

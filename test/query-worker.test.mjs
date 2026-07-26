@@ -67,6 +67,44 @@ test('concentration present for desc, absent for asc', () => {
   assert.equal(asc.concentration, null);
 });
 
+// "Top 1 share: 100%" restates that there is one group; it is not a measurement.
+// But a top-1 slice OF MANY groups is a real share, and must survive. The two are
+// indistinguishable from the returned rows, so they are asserted on a synthetic
+// dataset where the number of groups is chosen rather than discovered.
+function syntheticDs(agencyOfRow) {
+  const n = agencyOfRow.length;
+  return {
+    meta: {}, fiscalYears: [2022, 2023], reimbursementCats: new Set(), rows: n,
+    dims: { vendors: ['V'], agencies: ['A0', 'A1', 'A2'], categories: ['C'], subcategories: ['S'] },
+    cols: {
+      vendorIdx: Int32Array.from(agencyOfRow, () => 0),
+      agencyIdx: Int32Array.from(agencyOfRow),
+      categoryIdx: Uint8Array.from(agencyOfRow, () => 0),
+      subcatIdx: Int32Array.from(agencyOfRow, () => 0),
+      fyIdx: Uint8Array.from(agencyOfRow, () => 0),
+      fmonth: Uint8Array.from(agencyOfRow, () => 1),
+      amountCents: Float64Array.from(agencyOfRow, (_, i) => (i + 1) * 100),
+    },
+  };
+}
+
+const rank = (ds_, limit) => runQuery(ds_, {
+  metric: 'sum', groupBy: 'agency', sort: 'desc', limit,
+  filter: { fyIdx: null, agencyIdx: null, categoryIdx: null, vendorIdx: null, subcatIdx: null, excludeReimbursements: false },
+  resolved: {}, compareYears: false,
+});
+
+test('concentration is suppressed for a lone group, kept for a top-1 slice', () => {
+  const lone = rank(syntheticDs([0, 0, 0]), 10); // one agency in the data
+  assert.equal(lone.groups.length, 1);
+  assert.equal(lone.concentration, null, 'a lone group is 100% by construction, not a finding');
+
+  const topOfMany = rank(syntheticDs([0, 1, 2]), 1); // three agencies, top-1 shown
+  assert.equal(topOfMany.groups.length, 1, 'same row shape as the lone case');
+  assert.ok(topOfMany.concentration, 'but a top-1 slice of many IS a real share');
+  assert.ok(topOfMany.concentration.topNShare > 0 && topOfMany.concentration.topNShare < 1);
+});
+
 test('excludeReimbursements reduces the total by exactly the reimbursement sum', () => {
   const all = run({}).grandTotalCents;
   const excl = run({ filters: { excludeReimbursements: true } }).grandTotalCents;

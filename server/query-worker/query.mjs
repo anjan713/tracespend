@@ -206,9 +206,12 @@ export function runQuery(ds, q) {
     };
   }
 
-  // concentration only makes sense for a descending ranking
+  // Concentration only means something when there is MORE THAN ONE group in the
+  // data. With a single group it is always 100% — a restatement of "there is one
+  // group", which reads as a finding ("Top 1 share: 100%") without being one. The
+  // test is on `list`, not `shown`: a top-1 slice of many groups is a real share.
   let concentration = null;
-  if (sort === 'desc' && shown.length && metric !== 'avg') {
+  if (sort === 'desc' && list.length > 1 && shown.length && metric !== 'avg') {
     const top1 = shown[0].share ?? 0;
     const topN = shown.reduce((s, r) => s + (r.share ?? 0), 0);
     concentration = { top1Share: top1, topNShare: topN, topN: shown.length };

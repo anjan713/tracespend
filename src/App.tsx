@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { ChevronRight, Download, Loader2, RotateCcw } from 'lucide-react';
+import { ChevronRight, Loader2, RotateCcw } from 'lucide-react';
 import Header from './components/Header';
 import AskPanel from './components/AskPanel';
 import VerifyPanel from './components/VerifyPanel';
-import Sundial, { type SundialHandle, type SizeMode } from './components/Sundial';
+import Sundial, { type SundialHandle } from './components/Sundial';
 import CountUp from './components/CountUp';
 import { loadData, loadEvidence, indexTree, pathTo, valueOf } from './lib/data';
 import { money, pct } from './lib/format';
-import { logActivity, downloadActivity, subscribeActivity } from './lib/activityLog';
+import { logActivity } from './lib/activityLog';
 import { ask, type AskChartHint, type AskResponse } from './lib/ask';
 import type { AgentAction, EvidenceMap, FYMode, SpendData, SpendNode } from './types';
 
@@ -33,12 +33,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
 
   const [fyMode, setFyMode] = useState<FYMode>('all');
-  const [sizeMode, setSizeMode] = useState<SizeMode>('equal');
   const [minAmount, setMinAmount] = useState(0);
   const [vendorQuery, setVendorQuery] = useState('');
   const [selected, setSelected] = useState<SpendNode | null>(null);
   const [hovered, setHovered] = useState<SpendNode | null>(null);
-  const [logCount, setLogCount] = useState(0);
 
   const sundialRef = useRef<SundialHandle | null>(null);
   const highlightTimer = useRef<ReturnType<typeof setTimeout>>();
@@ -201,7 +199,6 @@ export default function App() {
   }, []);
 
   // ---- runtime activity logging (see src/lib/activityLog.ts) ----
-  useEffect(() => subscribeActivity(setLogCount), []);
   const debounceRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const debouncedLog = useCallback(
     (key: string, type: Parameters<typeof logActivity>[0], detail: Record<string, unknown>, ms = 500) => {
@@ -211,7 +208,6 @@ export default function App() {
     []
   );
   const handleFyMode = useCallback((m: FYMode) => { setFyMode(m); logActivity('fy_mode', { mode: m }); }, []);
-  const handleSizeMode = useCallback((m: SizeMode) => { setSizeMode(m); logActivity('size_mode', { mode: m }); }, []);
   const handleSelect = useCallback((node: SpendNode) => {
     setSelected(node);
     logActivity(node.level === 'other' ? 'expand_other' : 'navigate', {
@@ -353,20 +349,8 @@ export default function App() {
               <h2 className="text-lg font-semibold text-cream">Spending explorer</h2>
             </div>
             <div className="flex items-center gap-2">
-              {/* Slice-size layout toggle */}
-              <div className="flex items-center rounded-lg border border-white/10 bg-ink-800/80 p-0.5" title="How slice size is determined">
-                <button onClick={() => handleSizeMode('amount')} className={`seg ${sizeMode === 'amount' ? 'seg-active' : 'hover:text-cream'}`}>
-                  By amount
-                </button>
-                <button onClick={() => handleSizeMode('equal')} className={`seg ${sizeMode === 'equal' ? 'seg-active' : 'hover:text-cream'}`}>
-                  Equal
-                </button>
-              </div>
               <button onClick={() => { sundialRef.current?.reset(); logActivity('reset'); }} className="btn-ghost text-xs">
                 <RotateCcw size={13} /> Reset
-              </button>
-              <button onClick={downloadActivity} className="btn-ghost text-xs" title="Download the runtime activity log for this session">
-                <Download size={13} /> Log{logCount ? ` (${logCount})` : ''}
               </button>
             </div>
           </div>
@@ -429,7 +413,7 @@ export default function App() {
                 root={data.tree}
                 fyMode={fyMode}
                 minAmount={minAmount}
-                sizeMode={sizeMode}
+                sizeMode="equal"
                 reduceMotion={!!reduceMotion}
                 onSelect={handleSelect}
                 onHover={handleHover}

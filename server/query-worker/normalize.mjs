@@ -19,6 +19,16 @@ const GROUP_ALIASES = {
   none: 'none', total: 'none', overall: 'none',
 };
 
+// The filter field that pins each rankable dimension to a single value. A
+// group-by listed here is redundant once its own filter is set — see the guard
+// at the end of normalizeQuery().
+const PINNED_BY = {
+  vendor: 'vendorIdx',
+  agency: 'agencyIdx',
+  category: 'categoryIdx',
+  subcategory: 'subcatIdx',
+};
+
 const ok = (query) => ({ ok: true, query });
 const fail = (error, message) => ({ ok: false, error, message });
 
@@ -114,6 +124,14 @@ export function normalizeQuery(raw, ds) {
     filter.fyIdx = null;
     delete resolved.year;
   }
+
+  // Grouping by a dimension already pinned to ONE value produces a single group
+  // holding 100% of a total that IS that group — "of all spending to X, 100% went
+  // to X". That is a restatement of the filter, not an answer. A question that
+  // names one thing ("explain X") wants that thing's total, so drop the ranking.
+  // The fiscalYear/year case is handled above, since it needs the opposite fix
+  // (keep the ranking, drop the filter) to preserve the trend.
+  if (PINNED_BY[effGroupBy] && filter[PINNED_BY[effGroupBy]] != null) effGroupBy = 'none';
 
   return ok({ metric: effMetric, groupBy: effGroupBy, sort, limit, filter, resolved, compareYears });
 }
