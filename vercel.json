@@ -1,0 +1,15 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "functions": {
+    "api/index.mjs": {
+      "maxDuration": 30,
+      "includeFiles": "server/artifacts/**"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/:apiPath*", "destination": "/api?apiPath=:apiPath*" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}

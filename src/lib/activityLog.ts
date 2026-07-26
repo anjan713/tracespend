@@ -4,9 +4,11 @@
 // Three sinks, all best-effort and non-blocking:
 //   1. In-memory buffer (capped) for the in-app counter / export.
 //   2. localStorage, so a session survives reloads.
-//   3. POST /api/log → appends JSON lines to logs/activity.log on disk when the
-//      optional server is running (proxied by Vite in dev). Failures are
-//      swallowed so logging never affects the UX.
+//   3. POST /api/log → the server's activity store, but ONLY when
+//      VITE_SERVER_ACTIVITY_LOG is switched on. It is off by default because the
+//      deployed server keeps nothing without a database, so sending would wake a
+//      function only to discard the data. Failures are swallowed either way —
+//      logging never affects the UX.
 //
 // This is intentionally separate from PROJECT_LOG.md, which is the curated
 // development/interaction history maintained for assessment.
@@ -33,6 +35,10 @@ export interface ActivityEntry {
   type: ActivityType;
   detail?: Record<string, unknown>;
 }
+
+// Off unless explicitly enabled at build time. Turning it on takes two halves:
+// this, so the browser sends, and DATABASE_URL on the server, so it is stored.
+const SERVER_LOGGING_ENABLED = /^(1|true|on)$/i.test(import.meta.env.VITE_SERVER_ACTIVITY_LOG ?? '');
 
 const STORAGE_KEY = 'tracespend.activity.v1';
 // Last server clear-epoch this browser has already applied. When the server
@@ -102,7 +108,7 @@ function applyServerClear(serverClearedAt: unknown) {
 }
 
 function postToServer(entry: ActivityEntry) {
-  if (typeof fetch === 'undefined') return;
+  if (!SERVER_LOGGING_ENABLED || typeof fetch === 'undefined') return;
   try {
     fetch('/api/log', {
       method: 'POST',
@@ -122,7 +128,7 @@ function postToServer(entry: ActivityEntry) {
 // after an admin wipe drops its stale local log immediately. Also re-checks
 // when the tab regains focus (admin may wipe while the tab sits in background).
 function syncClearState() {
-  if (typeof fetch === 'undefined') return;
+  if (!SERVER_LOGGING_ENABLED || typeof fetch === 'undefined') return;
   fetch('/api/log/state')
     .then((r) => (r.ok ? r.json() : null))
     .then((j) => applyServerClear(j?.clearedAt))
