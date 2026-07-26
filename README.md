@@ -8,7 +8,7 @@ Type *"which agencies spend the most?"* → the sundial rotates and zooms to tha
 and a short, **source-verified** finding appears beside it. Click any arc to follow the
 money further, from **Category → Agency → Vendor**.
 
-> ▶ **Live demo:** _<!-- paste your Vercel URL here after deploying -->_
+> ▶ **Live demo:** _ https://tracespend.vercel.app _
 > The frontend is static output on a CDN, so the sundial renders on first visit with
 > **nothing to wake up**. Only asking a question invokes a server function.
 
